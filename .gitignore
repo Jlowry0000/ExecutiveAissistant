@@ -1,0 +1,46 @@
+# =============================================================================
+# AI Executive Assistant - Git Ignore
+# =============================================================================
+
+# Environment
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+.env
+
+# n8n
+n8n/data/
+n8n/**/data/
+
+# Node (n8n workflows if any node_modules)
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+
+# Secrets (absolute paths only, no negations)
+credentials.json
+secrets.yaml

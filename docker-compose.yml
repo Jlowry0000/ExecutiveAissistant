@@ -1,0 +1,112 @@
+# =============================================================================
+# AI Executive Assistant - Docker Compose Configuration
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - State & Context Store
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: exec-assistant-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-exec_assistant}
+      POSTGRES_USER: ${POSTGRES_USER:-exec_assistant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - exec-assistant-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-exec_assistant} -d ${POSTGRES_DB:-exec_assistant}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # NocoDB - Database UI & API
+  # ---------------------------------------------------------------------------
+  nocodb:
+    image: nocodb/nocodb:latest
+    container_name: exec-assistant-nocodb
+    restart: unless-stopped
+    environment:
+      NC_DB: postgres://${POSTGRES_USER:-exec_assistant}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-exec_assistant}
+      NC_PORT: ${NOCODB_PORT:-8080}
+      NC_JWT_SECRET: ${NOCODB_JWT_SECRET}
+      NC_AUTH_JWT_SECRET: ${NOCODB_JWT_SECRET}
+    volumes:
+      - nocodb_data:/usr/src/app/data
+    networks:
+      - exec-assistant-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # n8n - Orchestration Layer (Workflow Engine)
+  # ---------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: exec-assistant-n8n
+    restart: unless-stopped
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=all
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=all
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-America/New_York}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_LOG_LEVEL=info
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/home/node/workflows
+    networks:
+      - exec-assistant-net
+    ports:
+      - "5678:5678"
+    depends_on:
+      - postgres
+
+  # ---------------------------------------------------------------------------
+  # FastAPI - Webhook API Service
+  # ---------------------------------------------------------------------------
+  api:
+    image: python:3.12-slim
+    container_name: exec-assistant-api
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      bash -c "pip install fastapi uvicorn httpx nanoid &&
+               echo 'Ready'"
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=${POSTGRES_DB:-exec_assistant}
+      - POSTGRES_USER=${POSTGRES_USER:-exec_assistant}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - NOCODB_URL=http://nocodb:8080
+      - API_KEY=${API_KEY}
+    volumes:
+      - ./api:/app
+    networks:
+      - exec-assistant-net
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - nocodb
+
+volumes:
+  postgres_data:
+  nocodb_data:
+  n8n_data:
+
+networks:
+  exec-assistant-net:
+    driver: bridge
