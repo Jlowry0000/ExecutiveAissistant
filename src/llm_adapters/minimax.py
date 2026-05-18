@@ -1,8 +1,9 @@
 import os
 import httpx
-from .base import LLMAdapter
+from .base import LLMAdapter, register_provider
 
 
+@register_provider("minimax")
 class MiniMaxAdapter(LLMAdapter):
     def __init__(
         self,

@@ -29,7 +29,8 @@ A self-hosted AI executive assistant that triages emails and generates contextua
 - **Executive Digests (Pipeline B):** Scheduled synthesis of flagged emails into Markdown briefings
 - **Multi-Provider LLM:** OpenAI, Ollama (local), MiniMax, DeepSeek — switch via config
 - **Multi-IMAP:** Support for Gmail, Outlook, and custom IMAP servers simultaneously
-- **REST API:** Exposes `/context`, `/correspondence/flagged`, `/digest/trigger` endpoints
+- **REST API:** Exposes `/context`, `/correspondence/flagged`, `/digest/trigger`, `/health` endpoints
+- **Dockerfile-based API:** FastAPI service built from `api/Dockerfile` with pinned dependencies
 
 ## Quick Start
 
@@ -71,6 +72,24 @@ curl -X PUT http://localhost:8000/context \
   }'
 ```
 
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `API_KEY` | **Yes** | — | API key for `X-API-Key` header on all endpoints |
+| `N8N_API_KEY` | **Yes** | — | Must match `API_KEY` — used by n8n workflows to call the API |
+| `POSTGRES_PASSWORD` | **Yes** | — | PostgreSQL password |
+| `NOCODB_JWT_SECRET` | **Yes** | — | JWT secret for NocoDB auth |
+| `NOCODB_ADMIN_PASSWORD` | **Yes** | — | NocoDB admin password |
+| `N8N_PASSWORD` | **Yes** | — | n8n basic auth password |
+| `OPENAI_API_KEY` | No | — | Required if using OpenAI provider |
+| `DEEPSEEK_API_KEY` | No | — | Required if using DeepSeek provider |
+| `MINIMAX_API_KEY` | No | — | Required if using MiniMax provider |
+| `CORS_ORIGINS` | No | `http://localhost:5678` | Comma-separated allowed CORS origins |
+| `DIGEST_EMAIL_TO` | No | — | Recipient for the emailed daily digest |
+| `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama server URL |
+| `IMAP_ACCOUNTS` | No | `[]` | JSON array of IMAP account configs |
+
 ## Project Structure
 
 ```
@@ -87,6 +106,7 @@ ExecutiveAissistant/
 │   ├── llm_adapters/           # Multi-provider LLM
 │   └── config.py               # Config loader
 ├── api/
+│   ├── Dockerfile              # Container build (pinned deps + uvicorn)
 │   ├── app.py                  # FastAPI endpoints
 │   ├── models.py              # Pydantic models
 │   └── requirements.txt
@@ -98,16 +118,17 @@ ExecutiveAissistant/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/context` | Retrieve current BusinessContext |
-| PUT | `/context` | Update BusinessContext |
+| PUT | `/context` | Update BusinessContext (creates row if missing) |
 | GET | `/correspondence/flagged` | List flagged emails |
-| POST | `/digest/trigger` | Trigger digest generation |
+| POST | `/correspondence/flagged` | Save a triaged email result |
+| POST | `/digest/trigger` | Save a compiled digest to the archive |
 | GET | `/health` | Health check |
 
 All endpoints require `X-API-Key` header.
 
 ## LLM Providers
 
-The system supports four LLM providers. Set `DEFAULT_LLM_PROVIDER` in `.env`:
+The system supports four LLM providers via a factory pattern with `@register_provider` decorators. Set `DEFAULT_LLM_PROVIDER` in `.env`:
 
 | Provider | Model Default | Notes |
 |----------|--------------|-------|
@@ -115,6 +136,8 @@ The system supports four LLM providers. Set `DEFAULT_LLM_PROVIDER` in `.env`:
 | `ollama` | llama3.2 | Local, set `OLLAMA_BASE_URL` |
 | `minimax` | abab6-chat | Requires `MINIMAX_API_KEY` |
 | `deepseek` | deepseek-chat | Requires `DEEPSEEK_API_KEY` |
+
+Add a new provider by creating an adapter in `src/llm_adapters/`, decorating it with `@register_provider("name")`, and implementing `complete()`. See `base.py` for the interface.
 
 ## Documentation
 

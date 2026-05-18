@@ -1,7 +1,9 @@
 {
+  "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
   "name": "02 - Digest Compiler Pipeline",
   "nodes": [
     {
+      "id": "schedule-1",
       "parameters": {
         "rule": {
           "cron": {
@@ -9,156 +11,127 @@
           }
         }
       },
-      "id": "digest-scheduler",
       "name": "Daily Digest Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [100, 300]
     },
     {
+      "id": "fetch-emails-1",
       "parameters": {
         "url": "http://api:8000/correspondence/flagged?limit=50",
         "options": {
           "headers": {
             "entries": [
-              {
-                "name": "X-API-Key",
-                "value": "{{ $env.API_KEY }}"
-              }
+              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
       },
-      "id": "fetch-flagged-emails",
       "name": "Fetch Flagged Emails",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [300, 200]
     },
     {
+      "id": "fetch-context-1",
       "parameters": {
         "url": "http://api:8000/context",
         "options": {
           "headers": {
             "entries": [
-              {
-                "name": "X-API-Key",
-                "value": "{{ $env.API_KEY }}"
-              }
+              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
       },
-      "id": "fetch-context",
       "name": "Fetch BusinessContext",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [300, 400]
     },
     {
+      "id": "merge-1",
       "parameters": {
-        "jsCode": "const flagged = $input.first().json.data || [];\nconst context = $input.last().json;\n\nreturn [{\n  json: {\n    flagged_items: flagged,\n    context: context\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst flagged = items[0].json.data || [];\nconst context = items[1].json;\n\nreturn [{\n  json: {\n    flagged_items: flagged,\n    context: context\n  }\n}];"
       },
-      "id": "merge-digest-inputs",
       "name": "Merge Digest Inputs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [500, 300]
     },
     {
+      "id": "llm-digest-1",
       "parameters": {
-        "resource": "chat",
-        "operation": "complete",
-        "model": "gpt-4o",
-        "options": {
-          "temperature": 0.3
-        },
-        "messages": {
-          "values": [
-            {
-              "message": "You are an expert Chief of Staff. Your job is to synthesize raw data feeds from the past week into an executive briefing.\n\n### Inputs Provided:\n1. {{ $json.flagged_items }} - Flagged emails.\n2. {{ $json.context }} - The active business focus profile.\n\n### Processing Instructions:\n- Review each flagged email item. Group them logically (e.g., by urgency, sender, topic).\n- Highlight conflicts, tight turnaround times, or missing prerequisites.\n- Use the BusinessContext (core_focus, target_keywords) to prioritize.\n\n### Output Format:\nReturn your response using standard Markdown formatting.\n\n## Executive Digest\n\n### Critical Correspondence\n* **From [Sender Name]:** [Summary].\n  *Action Required:* [Next step].\n\n### Suggested Opportunities\n* **[Opportunity]:** [Description].\n\n### Notes & Dependencies\n* [Any additional context or warnings]",
-              "role": "system"
-            },
-            {
-              "message": "Business Context:\n{{ JSON.stringify($json.context) }}\n\nFlagged Emails:\n{{ JSON.stringify($json.flagged_items) }}",
-              "role": "user"
-            }
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{ $env.OPENAI_API_KEY }}"}
           ]
-        }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "model", "value": "gpt-4o"},
+            {"name": "messages", "value": "=[{\"role\":\"system\",\"content\":\"You are an expert Chief of Staff. Create an executive digest from flagged emails. Use Markdown format.\"},{\"role\":\"user\",\"content\":\"Context: {{ JSON.stringify($json.context) }}\\n\\nFlagged Emails: {{ JSON.stringify($json.flagged_items) }}\"}]"},
+            {"name": "temperature", "value": 0.3}
+          ]
+        },
+        "options": {}
       },
-      "id": "llm-digest-compiler",
       "name": "LLM Digest Compiler",
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.4,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [700, 300]
     },
     {
+      "id": "format-1",
       "parameters": {
-        "jsCode": "const digest = $input.first().json;\nconst now = new Date().toISOString();\n\nreturn [{\n  json: {\n    content_md: digest.message?.content || digest.text || JSON.stringify(digest),\n    period_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),\n    period_end: now,\n    llm_provider: 'openai',\n    model_used: 'gpt-4o',\n    triggered_by: 'scheduled'\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst llmResponse = items[0].json;\nconst now = new Date().toISOString();\n\nlet digestContent = '';\ntry {\n  digestContent = llmResponse.choices?.[0]?.message?.content || llmResponse.content || JSON.stringify(llmResponse);\n} catch (e) {\n  digestContent = JSON.stringify(llmResponse);\n}\n\nreturn [{\n  json: {\n    content_md: digestContent,\n    period_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),\n    period_end: now,\n    llm_provider: 'openai',\n    model_used: 'gpt-4o',\n    triggered_by: 'scheduled'\n  }\n}];"
       },
-      "id": "format-digest",
       "name": "Format Digest Record",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [900, 300]
     },
     {
+      "id": "save-1",
       "parameters": {
         "url": "http://api:8000/digest/trigger",
         "method": "POST",
         "bodyParameters": {
           "parameters": [
-            {
-              "name": "content_md",
-              "value": "{{ $json.content_md }}"
-            },
-            {
-              "name": "period_start",
-              "value": "{{ $json.period_start }}"
-            },
-            {
-              "name": "period_end",
-              "value": "{{ $json.period_end }}"
-            },
-            {
-              "name": "llm_provider",
-              "value": "{{ $json.llm_provider }}"
-            },
-            {
-              "name": "model_used",
-              "value": "{{ $json.model_used }}"
-            },
-            {
-              "name": "triggered_by",
-              "value": "{{ $json.triggered_by }}"
-            }
+            {"name": "content_md", "value": "{{ $json.content_md }}"},
+            {"name": "period_start", "value": "{{ $json.period_start }}"},
+            {"name": "period_end", "value": "{{ $json.period_end }}"},
+            {"name": "llm_provider", "value": "{{ $json.llm_provider }}"},
+            {"name": "model_used", "value": "{{ $json.model_used }}"},
+            {"name": "triggered_by", "value": "{{ $json.triggered_by }}"}
           ]
         },
         "options": {
           "headers": {
             "entries": [
-              {
-                "name": "X-API-Key",
-                "value": "{{ $env.API_KEY }}"
-              }
+              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
       },
-      "id": "save-digest",
       "name": "Save Digest to NocoDB",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1100, 300]
     },
     {
+      "id": "email-1",
       "parameters": {
-        "to": "{{ $env.DIGEST_WEBHOOK_URL || '' }}",
+        "to": "{{ $env.DIGEST_EMAIL_TO }}",
         "options": {
           "subject": "Executive Digest - {{ $now.format('YYYY-MM-DD') }}"
         }
       },
-      "id": "send-digest-email",
       "name": "Send Digest Email",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 1.1,
@@ -169,84 +142,31 @@
     "Daily Digest Trigger": {
       "main": [
         [
-          {
-            "node": "Fetch Flagged Emails",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Fetch BusinessContext",
-            "type": "main",
-            "index": 0
-          }
+          {"node": "Fetch Flagged Emails", "type": "main", "index": 0},
+          {"node": "Fetch BusinessContext", "type": "main", "index": 0}
         ]
       ]
     },
     "Fetch Flagged Emails": {
-      "main": [
-        [
-          {
-            "node": "Merge Digest Inputs",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Merge Digest Inputs", "type": "main", "index": 0}]]
     },
     "Fetch BusinessContext": {
-      "main": [
-        [
-          {
-            "node": "Merge Digest Inputs",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
+      "main": [[{"node": "Merge Digest Inputs", "type": "main", "index": 1}]]
     },
     "Merge Digest Inputs": {
-      "main": [
-        [
-          {
-            "node": "LLM Digest Compiler",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "LLM Digest Compiler", "type": "main", "index": 0}]]
     },
     "LLM Digest Compiler": {
-      "main": [
-        [
-          {
-            "node": "Format Digest Record",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+      "main": [[{"node": "Format Digest Record", "type": "main", "index": 0}]]
     },
     "Format Digest Record": {
       "main": [
-        [
-          {
-            "node": "Save Digest to NocoDB",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Send Digest Email",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Save Digest to NocoDB", "type": "main", "index": 0}],
+        [{"node": "Send Digest Email", "type": "main", "index": 0}]
       ]
     }
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
+  "settings": {"executionOrder": "v1"},
   "staticData": null,
-  "tags": ["digest", "scheduled", "llm"],
   "meta": {}
 }

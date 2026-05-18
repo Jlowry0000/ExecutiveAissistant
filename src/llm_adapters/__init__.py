@@ -1,16 +1,7 @@
 import os
 from typing import Optional
 
-from .base import LLMAdapter
-
-_PROVIDERS: dict[str, type[LLMAdapter]] = {}
-
-
-def register_provider(name: str):
-    def decorator(cls: type[LLMAdapter]):
-        _PROVIDERS[name] = cls
-        return cls
-    return decorator
+from .base import LLMAdapter, _PROVIDERS, register_provider
 
 
 def get_llm_adapter(

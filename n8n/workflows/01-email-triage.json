@@ -1,7 +1,9 @@
 {
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567891",
   "name": "01 - Email Triage Pipeline",
   "nodes": [
     {
+      "id": "schedule-1",
       "parameters": {
         "rule": {
           "interval": [
@@ -12,13 +14,13 @@
           ]
         }
       },
-      "id": "imap-scheduler",
       "name": "IMAP Scheduler",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.1,
       "position": [100, 300]
     },
     {
+      "id": "read-email-1",
       "parameters": {
         "brand": "gmail",
         "credentials": {
@@ -32,7 +34,6 @@
         "format": "resolved",
         "emailProperties": ["body", "sender", "subject", "headers", "messageId"]
       },
-      "id": "imap-read-node",
       "name": "Read Gmail Emails",
       "type": "n8n-nodes-base.emailReadImap",
       "typeVersion": 1.3,
@@ -46,6 +47,7 @@
       "continueOnFail": true
     },
     {
+      "id": "fetch-context-1",
       "parameters": {
         "url": "http://api:8000/context",
         "options": {
@@ -53,134 +55,104 @@
             "entries": [
               {
                 "name": "X-API-Key",
-                "value": "{{ $env.API_KEY }}"
+                "value": "{{ $env.N8N_API_KEY }}"
               }
             ]
           }
         }
       },
-      "id": "fetch-context-http",
       "name": "Fetch BusinessContext",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [500, 300]
     },
     {
+      "id": "normalize-1",
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst context = items[0].json;\n\nreturn items.map(item => {\n  const email = item.json;\n  return {\n    json: {\n      body: email.body || email.text || '',\n      sender: email.sender || email.from || '',\n      sender_name: email.senderName || email.fromName || '',\n      subject: email.subject || '',\n      message_id: email.messageId || email.id || '',\n      context: context\n    }\n  };\n});"
+        "jsCode": "const items = $input.all();\nconst context = items[0].json;\n\nconst normalized = items.map(item => {\n  const email = item.json;\n  return {\n    json: {\n      body: email.body || '',\n      sender: email.sender || email.from || '',\n      sender_name: email.senderName || email.fromName || '',\n      subject: email.subject || '',\n      message_id: email.messageId || email.id || '',\n      context: context\n    }\n  };\n});\n\n$output[0].push(...normalized);\n$output[1].push(...normalized);"
       },
-      "id": "normalize-email-data",
       "name": "Normalize Email Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [700, 300]
     },
     {
+      "id": "llm-triage-1",
       "parameters": {
-        "resource": "chat",
-        "operation": "complete",
-        "model": "gpt-4o",
-        "options": {
-          "responseFormat": "jsonObject",
-          "temperature": 0.2
-        },
-        "messages": {
-          "values": [
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "message": "You are an elite executive assistant AI. Your job is to process incoming emails, evaluate their importance based on a dynamic Business Context, extract core metadata, and pre-draft a response.\n\n### Inputs Provided:\n1. {{ $json.body }} - The raw text content of the incoming email.\n2. {{ $json.sender }} - The email address or name of the sender.\n3. {{ $json.context }} - A JSON object containing the current business goals, keywords, and drafting rules.\n\n### Processing Instructions:\n1. Compare the email body against the \"core_focus\" and \"target_keywords\" in the Business Context.\n2. Determine if this email represents an immediate business opportunity, a critical operational threat, an essential client request, or an upcoming constraint. If yes, set \"is_flagged\" to true.\n3. If the email is a routine inquiry or task, draft a high-quality response matching the \"auto_draft_tone\" provided in the context.\n4. If the email is clear spam or completely irrelevant, set \"is_flagged\" to false, leave the summary blank, and do not draft a response.\n\n### Output Format:\nYou must return valid JSON ONLY.\n{\n  \"is_flagged\": boolean,\n  \"flag_reason\": \"String explaining why it was flagged, or null\",\n  \"summary\": \"A 1-2 sentence summary of the sender's core intent\",\n  \"suggested_action\": \"The immediate next action required\",\n  \"draft_response\": \"The complete draft reply text, or null\"\n}",
-              "role": "system"
-            },
-            {
-              "message": "From: {{ $json.sender }}\nSubject: {{ $json.subject }}\n\n{{ $json.body }}",
-              "role": "user"
+              "name": "Authorization",
+              "value": "Bearer {{ $env.OPENAI_API_KEY }}"
             }
           ]
-        }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gpt-4o"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\":\"system\",\"content\":\"You are an elite executive assistant AI. Analyze emails and return JSON: {is_flagged, flag_reason, summary, suggested_action, draft_response}\"},{\"role\":\"user\",\"content\":\"From: {{ $json.sender }}\\nSubject: {{ $json.subject }}\\n\\n{{ $json.body }}\\n\\nContext: {{ JSON.stringify($json.context) }}\"}]"
+            },
+            {
+              "name": "temperature",
+              "value": 0.2
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "llm-triage-engine",
       "name": "LLM Triage Engine",
-      "type": "@n8n/n8n-nodes-langchain.chainLlm",
-      "typeVersion": 1.4,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [900, 300]
     },
     {
+      "id": "merge-1",
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst emailData = items[1].json;\nconst triageResult = items[0].json;\n\nreturn [{\n  json: {\n    message_id: emailData.message_id,\n    sender: emailData.sender,\n    sender_name: emailData.sender_name,\n    subject: emailData.subject,\n    body: emailData.body,\n    body_preview: (emailData.body || '').substring(0, 200),\n    summary: triageResult.summary || null,\n    flag_reason: triageResult.flag_reason || null,\n    suggested_action: triageResult.suggested_action || null,\n    draft_response: triageResult.draft_response || null,\n    is_flagged: triageResult.is_flagged || false,\n    is_read: true\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst emailData = items[1].json;\nlet triageResult = {is_flagged: false};\ntry {\n  const content = items[0].json.choices?.[0]?.message?.content || items[0].json.content;\n  const match = content?.match(/\\{[\\s\\S]*\\}/);\n  if (match) triageResult = JSON.parse(match[0]);\n} catch (e) {\n  console.error('Failed to parse LLM triage result:', e.message);\n}\n\nreturn [{\n  json: {\n    message_id: emailData.message_id,\n    sender: emailData.sender,\n    sender_name: emailData.sender_name,\n    subject: emailData.subject,\n    body: emailData.body,\n    body_preview: (emailData.body || '').substring(0, 200),\n    summary: triageResult.summary,\n    flag_reason: triageResult.flag_reason,\n    suggested_action: triageResult.suggested_action,\n    draft_response: triageResult.draft_response,\n    is_flagged: triageResult.is_flagged,\n    is_read: true\n  }\n}];"
       },
-      "id": "merge-email-triage",
       "name": "Merge Email + Triage",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1100, 300]
     },
     {
+      "id": "save-1",
       "parameters": {
         "url": "http://api:8000/correspondence/flagged",
         "method": "POST",
         "bodyParameters": {
           "parameters": [
-            {
-              "name": "message_id",
-              "value": "{{ $json.message_id }}"
-            },
-            {
-              "name": "sender",
-              "value": "{{ $json.sender }}"
-            },
-            {
-              "name": "sender_name",
-              "value": "{{ $json.sender_name }}"
-            },
-            {
-              "name": "subject",
-              "value": "{{ $json.subject }}"
-            },
-            {
-              "name": "body",
-              "value": "{{ $json.body }}"
-            },
-            {
-              "name": "body_preview",
-              "value": "{{ $json.body_preview }}"
-            },
-            {
-              "name": "summary",
-              "value": "{{ $json.summary }}"
-            },
-            {
-              "name": "flag_reason",
-              "value": "{{ $json.flag_reason }}"
-            },
-            {
-              "name": "suggested_action",
-              "value": "{{ $json.suggested_action }}"
-            },
-            {
-              "name": "draft_response",
-              "value": "{{ $json.draft_response }}"
-            },
-            {
-              "name": "is_flagged",
-              "value": "{{ $json.is_flagged }}"
-            },
-            {
-              "name": "is_read",
-              "value": "{{ $json.is_read }}"
-            }
+            {"name": "message_id", "value": "{{ $json.message_id }}"},
+            {"name": "sender", "value": "{{ $json.sender }}"},
+            {"name": "sender_name", "value": "{{ $json.sender_name }}"},
+            {"name": "subject", "value": "{{ $json.subject }}"},
+            {"name": "body", "value": "{{ $json.body }}"},
+            {"name": "body_preview", "value": "{{ $json.body_preview }}"},
+            {"name": "summary", "value": "{{ $json.summary }}"},
+            {"name": "flag_reason", "value": "{{ $json.flag_reason }}"},
+            {"name": "suggested_action", "value": "{{ $json.suggested_action }}"},
+            {"name": "draft_response", "value": "{{ $json.draft_response }}"},
+            {"name": "is_flagged", "value": "{{ $json.is_flagged }}"},
+            {"name": "is_read", "value": "{{ $json.is_read }}"}
           ]
         },
         "options": {
           "headers": {
             "entries": [
-              {
-                "name": "X-API-Key",
-                "value": "{{ $env.API_KEY }}"
-              }
+              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
       },
-      "id": "save-flagged-email",
       "name": "Save to NocoDB",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
@@ -188,85 +160,19 @@
     }
   ],
   "connections": {
-    "IMAP Scheduler": {
-      "main": [
-        [
-          {
-            "node": "Read Gmail Emails",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Read Gmail Emails": {
-      "main": [
-        [
-          {
-            "node": "Fetch BusinessContext",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fetch BusinessContext": {
-      "main": [
-        [
-          {
-            "node": "Normalize Email Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
+    "IMAP Scheduler": {"main": [[{"node": "Read Gmail Emails", "type": "main", "index": 0}]]},
+    "Read Gmail Emails": {"main": [[{"node": "Fetch BusinessContext", "type": "main", "index": 0}]]},
+    "Fetch BusinessContext": {"main": [[{"node": "Normalize Email Data", "type": "main", "index": 0}]]},
     "Normalize Email Data": {
       "main": [
-        [
-          {
-            "node": "LLM Triage Engine",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "LLM Triage Engine", "type": "main", "index": 0}],
+        [{"node": "Merge Email + Triage", "type": "main", "index": 1}]
       ]
     },
-    "LLM Triage Engine": {
-      "main": [
-        [
-          {
-            "node": "Merge Email + Triage",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge Email + Triage": {
-      "main": [
-        [
-          {
-            "node": "Save to NocoDB",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "LLM Triage Engine": {"main": [[{"node": "Merge Email + Triage", "type": "main", "index": 0}]]},
+    "Merge Email + Triage": {"main": [[{"node": "Save to NocoDB", "type": "main", "index": 0}]]}
   },
-  "settings": {
-    "executionOrder": "v1"
-  },
+  "settings": {"executionOrder": "v1"},
   "staticData": null,
-  "tags": ["triage", "email", "llm"],
-  "meta": {
-    "templateCredsSetup": [
-      {
-        "name": "imap-gmail-cred",
-        "type": "imap",
-        "label": "Gmail IMAP"
-      }
-    ]
-  }
+  "meta": {}
 }

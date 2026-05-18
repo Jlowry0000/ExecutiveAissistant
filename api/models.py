@@ -11,6 +11,21 @@ class BusinessContext(BaseModel):
     default_llm_provider: str = "openai"
 
 
+class FlaggedEmailCreate(BaseModel):
+    message_id: str
+    sender: str
+    sender_name: Optional[str] = None
+    subject: Optional[str] = None
+    body: str = ""
+    body_preview: Optional[str] = None
+    summary: Optional[str] = None
+    flag_reason: Optional[str] = None
+    suggested_action: Optional[str] = None
+    draft_response: Optional[str] = None
+    is_flagged: bool = False
+    is_read: bool = True
+
+
 class FlaggedEmailItem(BaseModel):
     id: str
     sender: str
@@ -29,18 +44,19 @@ class FlaggedEmailsResponse(BaseModel):
     count: int
 
 
+class DigestPayload(BaseModel):
+    content_md: str
+    period_start: str
+    period_end: str
+    llm_provider: str
+    model_used: Optional[str] = None
+    triggered_by: Optional[str] = None
+
+
 class DigestTriggerResponse(BaseModel):
     status: str
     message: str
     digest_id: Optional[str] = None
-
-
-class APIKeyAuth:
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-
-    def verify(self, key: str) -> bool:
-        return key == self.api_key
 
 
 class NocoDBClient:

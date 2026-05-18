@@ -45,12 +45,13 @@ python -c "from src.llm_adapters import get_llm_adapter; print(get_llm_adapter('
 - [x] Created `api/models.py`
 - [x] Created `api/app.py`
 - [x] Created `api/requirements.txt`
+- [x] Created `api/Dockerfile` (proper container build, replaces inline pip)
 
 **Verify:**
 ```bash
-cd /home/jordan/Projects/ExecutiveAissistant/api
-pip install -r requirements.txt
-python -c "from app import app; print('FastAPI app loaded OK')"
+cd /home/jordan/Projects/ExecutiveAissistant
+docker-compose build api
+docker-compose run --rm api python -c "from app import app; print('FastAPI app loaded OK')"
 ```
 
 ## Phase 5: n8n Workflows
@@ -66,8 +67,9 @@ python -c "from app import app; print('FastAPI app loaded OK')"
 **Run tests:**
 ```bash
 cd /home/jordan/Projects/ExecutiveAissistant
-pip install pytest httpx
-pytest tests/ -v
+python3 -m venv .venv
+.venv/bin/pip install -r api/requirements.txt pytest
+.venv/bin/pytest tests/ -v
 ```
 
 ## Deployment Steps
@@ -99,6 +101,7 @@ pytest tests/ -v
    - Import `n8n/workflows/01-email-triage.json`
    - Import `n8n/workflows/02-digest-compiler.json`
    - Configure n8n credentials for IMAP and LLM
+   - Ensure `N8N_API_KEY` env var is set (must match `API_KEY` in `.env`)
 
 6. **Update BusinessContext:**
    - Use the API or NocoDB UI to set your `core_focus` and `target_keywords`
@@ -118,18 +121,14 @@ To add multiple email accounts:
 
 ## Switching LLM Providers
 
-The n8n workflows default to OpenAI GPT-4o. To switch:
+The Python LLM adapter layer (`src/llm_adapters/`) supports all four providers via `get_llm_adapter()`. However, the n8n workflows currently call OpenAI's API directly, so switching requires editing the workflow's HTTP Request node:
 
 **In n8n LLM node:**
-- Change `model` parameter to your desired model
-- Update credentials to point to the correct provider (Ollama, DeepSeek, etc.)
+- Change the URL to your provider's chat completions endpoint
+- Update the `Authorization` header and `model` parameter
+- Adjust the request/response parsing in the downstream Code node
 
-**Via environment variables:**
-```
-DEFAULT_LLM_PROVIDER=ollama
-OLLAMA_MODEL=llama3.2
-OLLAMA_BASE_URL=http://your-ollama-host:11434
-```
+**The `DEFAULT_LLM_PROVIDER` env var** controls which adapter the Python API code uses for server-side LLM operations (future endpoints only).
 
 ## Architecture Notes
 

@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -6,16 +7,18 @@ from typing import Optional
 
 from .models import (
     NocoDBClient,
-    APIKeyAuth,
     BusinessContext,
+    FlaggedEmailCreate,
     FlaggedEmailsResponse,
     FlaggedEmailItem,
+    DigestPayload,
     DigestTriggerResponse,
 )
 
 
 NOCODB_URL = os.environ.get("NOCODB_URL", "http://localhost:8080")
 API_KEY = os.environ.get("API_KEY", "")
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5678")
 nocodb: Optional[NocoDBClient] = None
 
 
@@ -31,7 +34,7 @@ app = FastAPI(title="AI Executive Assistant API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=json.loads(f'["{CORS_ORIGINS.replace(",", '","')}"]'),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,6 +45,21 @@ def verify_api_key(x_api_key: str = Header(...)) -> str:
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return x_api_key
+
+
+async def _get_or_create_context_row() -> str:
+    result = await nocodb.get_rows("BusinessContext", {"limit": 1})
+    rows = result.get("list", [])
+    if rows:
+        return rows[0]["Id"]
+    created = await nocodb.insert_row("BusinessContext", {
+        "core_focus": "",
+        "target_keywords": "[]",
+        "event_discovery_queries": "[]",
+        "auto_draft_tone": "professional",
+        "default_llm_provider": "openai",
+    })
+    return created["Id"]
 
 
 @app.get("/context", response_model=BusinessContext)
@@ -65,7 +83,8 @@ async def put_context(
     ctx: BusinessContext,
     _: str = Depends(verify_api_key)
 ):
-    await nocodb.update_row("BusinessContext", "00000000-0000-0000-0000-000000000001", {
+    row_id = await _get_or_create_context_row()
+    await nocodb.update_row("BusinessContext", row_id, {
         "core_focus": ctx.core_focus,
         "target_keywords": ctx.target_keywords,
         "event_discovery_queries": ctx.event_discovery_queries,
@@ -73,6 +92,26 @@ async def put_context(
         "default_llm_provider": ctx.default_llm_provider,
     })
     return ctx
+
+
+@app.post("/correspondence/flagged", response_model=FlaggedEmailItem)
+async def post_flagged_email(
+    email: FlaggedEmailCreate,
+    _: str = Depends(verify_api_key)
+):
+    created = await nocodb.insert_row("FlaggedEmails", email.model_dump())
+    return FlaggedEmailItem(
+        id=created["Id"],
+        sender=email.sender,
+        sender_name=email.sender_name,
+        subject=email.subject,
+        summary=email.summary,
+        flag_reason=email.flag_reason,
+        suggested_action=email.suggested_action,
+        draft_response=email.draft_response,
+        is_flagged=email.is_flagged,
+        created_at=created.get("created_at", ""),
+    )
 
 
 @app.get("/correspondence/flagged", response_model=FlaggedEmailsResponse)
@@ -107,11 +146,15 @@ async def get_flagged_emails(
 
 
 @app.post("/digest/trigger", response_model=DigestTriggerResponse)
-async def trigger_digest(_: str = Depends(verify_api_key)):
+async def trigger_digest(
+    payload: DigestPayload,
+    _: str = Depends(verify_api_key)
+):
+    created = await nocodb.insert_row("DigestArchive", payload.model_dump())
     return DigestTriggerResponse(
         status="accepted",
-        message="Digest generation has been queued.",
-        digest_id=None,
+        message="Digest saved successfully.",
+        digest_id=created.get("Id"),
     )
 
 
