@@ -54,7 +54,7 @@
           "headers": {
             "entries": [
               {
-                "name": "X-API-Key",
+                "name": "X-N8N-Key",
                 "value": "{{ $env.N8N_API_KEY }}"
               }
             ]
@@ -80,13 +80,13 @@
       "id": "llm-triage-1",
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
+        "url": "http://api:8000/llm/complete",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
-              "name": "Authorization",
-              "value": "Bearer {{ $env.OPENAI_API_KEY }}"
+              "name": "X-N8N-Key",
+              "value": "{{ $env.N8N_API_KEY }}"
             }
           ]
         },
@@ -94,8 +94,12 @@
         "bodyParameters": {
           "parameters": [
             {
-              "name": "model",
-              "value": "gpt-4o"
+              "name": "provider",
+              "value": "openai"
+            },
+            {
+              "name": "json_output",
+              "value": true
             },
             {
               "name": "messages",
@@ -117,7 +121,7 @@
     {
       "id": "merge-1",
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst emailData = items[1].json;\nlet triageResult = {is_flagged: false};\ntry {\n  const content = items[0].json.choices?.[0]?.message?.content || items[0].json.content;\n  const match = content?.match(/\\{[\\s\\S]*\\}/);\n  if (match) triageResult = JSON.parse(match[0]);\n} catch (e) {\n  console.error('Failed to parse LLM triage result:', e.message);\n}\n\nreturn [{\n  json: {\n    message_id: emailData.message_id,\n    sender: emailData.sender,\n    sender_name: emailData.sender_name,\n    subject: emailData.subject,\n    body: emailData.body,\n    body_preview: (emailData.body || '').substring(0, 200),\n    summary: triageResult.summary,\n    flag_reason: triageResult.flag_reason,\n    suggested_action: triageResult.suggested_action,\n    draft_response: triageResult.draft_response,\n    is_flagged: triageResult.is_flagged,\n    is_read: true\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst emailData = items[1].json;\nlet triageResult = {is_flagged: false};\ntry {\n  const content = items[0].json.content;\n  const match = content?.match(/\\{[\\s\\S]*\\}/);\n  if (match) triageResult = JSON.parse(match[0]);\n} catch (e) {\n  console.error('Failed to parse LLM triage result:', e.message);\n}\n\nreturn [{\n  json: {\n    message_id: emailData.message_id,\n    sender: emailData.sender,\n    sender_name: emailData.sender_name,\n    subject: emailData.subject,\n    body: emailData.body,\n    body_preview: (emailData.body || '').substring(0, 200),\n    summary: triageResult.summary,\n    flag_reason: triageResult.flag_reason,\n    suggested_action: triageResult.suggested_action,\n    draft_response: triageResult.draft_response,\n    is_flagged: triageResult.is_flagged,\n    is_read: true\n  }\n}];"
       },
       "name": "Merge Email + Triage",
       "type": "n8n-nodes-base.code",
@@ -148,7 +152,7 @@
         "options": {
           "headers": {
             "entries": [
-              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
+              {"name": "X-N8N-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }

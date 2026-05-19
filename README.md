@@ -115,16 +115,17 @@ ExecutiveAissistant/
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/context` | Retrieve current BusinessContext |
-| PUT | `/context` | Update BusinessContext (creates row if missing) |
-| GET | `/correspondence/flagged` | List flagged emails |
-| POST | `/correspondence/flagged` | Save a triaged email result |
-| POST | `/digest/trigger` | Save a compiled digest to the archive |
-| GET | `/health` | Health check |
-
-All endpoints require `X-API-Key` header.
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/context` | Retrieve current BusinessContext | `X-API-Key` or `X-N8N-Key` |
+| PUT | `/context` | Update BusinessContext (creates row if missing) | `X-API-Key` or `X-N8N-Key` |
+| GET | `/correspondence/flagged` | List flagged emails (paginated) | `X-API-Key` or `X-N8N-Key` |
+| POST | `/correspondence/flagged` | Save a triaged email result | `X-API-Key` or `X-N8N-Key` |
+| POST | `/digest/trigger` | Save a compiled digest to the archive | `X-API-Key` or `X-N8N-Key` |
+| POST | `/llm/complete` | Call an LLM through the adapter layer | `X-API-Key` or `X-N8N-Key` |
+| POST | `/imap-accounts` | Add an IMAP account (password encrypted) | `X-API-Key` or `X-N8N-Key` |
+| GET | `/imap-accounts` | List IMAP accounts (without passwords) | `X-API-Key` or `X-N8N-Key` |
+| GET | `/health` | Health check | None |
 
 ## LLM Providers
 

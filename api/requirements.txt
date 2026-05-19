@@ -3,3 +3,6 @@ uvicorn[standard]==0.34.0
 httpx==0.28.1
 pydantic==2.10.3
 python-dotenv==1.0.1
+slowapi==0.1.9
+cryptography==44.0.0
+tenacity==9.0.0

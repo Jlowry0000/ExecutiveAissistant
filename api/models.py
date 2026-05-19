@@ -1,6 +1,40 @@
+import os
+import base64
 from pydantic import BaseModel
 from typing import Optional
 import httpx
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+
+def _get_fernet() -> Fernet:
+    key = os.environ.get("ENCRYPTION_KEY", "")
+    if not key:
+        raise ValueError("ENCRYPTION_KEY is not set")
+    key_bytes = base64.urlsafe_b64decode(key.encode())
+    return Fernet(key_bytes)
+
+
+def encrypt_value(plaintext: str) -> str:
+    f = _get_fernet()
+    return f.encrypt(plaintext.encode()).decode()
+
+
+def decrypt_value(ciphertext: str) -> str:
+    f = _get_fernet()
+    return f.decrypt(ciphertext.encode()).decode()
+
+
+class IMAPAccountCreate(BaseModel):
+    name: str
+    provider: str = "custom"
+    host: str
+    port: int = 993
+    username: str
+    password: str
+    is_active: bool = False
+    use_ssl: bool = True
 
 
 class BusinessContext(BaseModel):
@@ -42,6 +76,7 @@ class FlaggedEmailItem(BaseModel):
 class FlaggedEmailsResponse(BaseModel):
     data: list[FlaggedEmailItem]
     count: int
+    total: int = 0
 
 
 class DigestPayload(BaseModel):
@@ -57,6 +92,20 @@ class DigestTriggerResponse(BaseModel):
     status: str
     message: str
     digest_id: Optional[str] = None
+
+
+class LLMCompleteRequest(BaseModel):
+    provider: str = "openai"
+    messages: list[dict[str, str]]
+    json_output: bool = False
+    temperature: float = 0.2
+    model: Optional[str] = None
+
+
+class LLMCompleteResponse(BaseModel):
+    content: str
+    provider: str
+    model: str
 
 
 class NocoDBClient:

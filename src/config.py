@@ -12,18 +12,6 @@ class LLMConfig:
 
 
 @dataclass
-class IMAPAccount:
-    name: str
-    provider: str
-    host: str
-    port: int
-    username: str
-    password: str
-    is_active: bool = False
-    use_ssl: bool = True
-
-
-@dataclass
 class AppConfig:
     postgres_host: str = "localhost"
     postgres_db: str = "exec_assistant"
@@ -34,13 +22,14 @@ class AppConfig:
     nocodb_api_key: Optional[str] = None
 
     api_key: str = ""
+    n8n_api_key: str = ""
+    encryption_key: str = ""
 
     n8n_url: str = "http://localhost:5678"
 
     default_llm_provider: str = "openai"
+    data_retention_days: int = 90
     llm_configs: dict[str, LLMConfig] = field(default_factory=dict)
-
-    imap_accounts: list[IMAPAccount] = field(default_factory=list)
 
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -52,8 +41,11 @@ class AppConfig:
         config.nocodb_url = os.environ.get("NOCODB_URL", "http://localhost:8080")
         config.nocodb_api_key = os.environ.get("NOCODB_API_KEY")
         config.api_key = os.environ.get("API_KEY", "")
+        config.n8n_api_key = os.environ.get("N8N_API_KEY", "")
+        config.encryption_key = os.environ.get("ENCRYPTION_KEY", "")
         config.n8n_url = os.environ.get("N8N_URL", "http://localhost:5678")
         config.default_llm_provider = os.environ.get("DEFAULT_LLM_PROVIDER", "openai")
+        config.data_retention_days = int(os.environ.get("DATA_RETENTION_DAYS", "90"))
 
         config.llm_configs = {
             "openai": LLMConfig(
@@ -78,25 +70,5 @@ class AppConfig:
                 model=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
             ),
         }
-
-        import json
-        imap_json = os.environ.get("IMAP_ACCOUNTS", "[]")
-        try:
-            accounts_data = json.loads(imap_json)
-            config.imap_accounts = [
-                IMAPAccount(
-                    name=a.get("name", ""),
-                    provider=a.get("provider", "custom"),
-                    host=a.get("host", ""),
-                    port=a.get("port", 993),
-                    username=a.get("username", ""),
-                    password=a.get("password", ""),
-                    is_active=a.get("is_active", False),
-                    use_ssl=a.get("use_ssl", True),
-                )
-                for a in accounts_data
-            ]
-        except json.JSONDecodeError:
-            pass
 
         return config

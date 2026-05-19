@@ -1,6 +1,17 @@
 import os
 import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from .base import LLMAdapter, register_provider
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.ConnectError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500:
+        return True
+    return False
 
 
 @register_provider("ollama")
@@ -18,6 +29,11 @@ class OllamaAdapter(LLMAdapter):
     def provider_name(self) -> str:
         return "ollama"
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
+        retry=retry_if_exception(_is_retryable),
+    )
     def complete(
         self,
         messages: list[dict[str, str]],

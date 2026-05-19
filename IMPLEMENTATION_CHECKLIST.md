@@ -60,7 +60,17 @@ docker-compose run --rm api python -c "from app import app; print('FastAPI app l
 
 **Verify:** Import both JSON files into your n8n instance via the UI.
 
-## Phase 6: Testing
+## Phase 6: Additional Migrations
+- [x] Created `database/migrations/002_audit_trail.sql` — Audit logging table
+- [x] Created `database/migrations/003_data_retention.sql` — Data cleanup function
+
+**Verify:**
+```bash
+docker-compose exec postgres psql -U exec_assistant -d exec_assistant -f /migrations/002_audit_trail.sql
+docker-compose exec postgres psql -U exec_assistant -d exec_assistant -f /migrations/003_data_retention.sql
+```
+
+## Phase 7: Testing
 - [x] Created `tests/test_llm_adapters.py`
 - [x] Created `tests/test_api.py`
 
@@ -100,10 +110,16 @@ python3 -m venv .venv
    - Open n8n at http://localhost:5678
    - Import `n8n/workflows/01-email-triage.json`
    - Import `n8n/workflows/02-digest-compiler.json`
-   - Configure n8n credentials for IMAP and LLM
-   - Ensure `N8N_API_KEY` env var is set (must match `API_KEY` in `.env`)
+    - Configure n8n credentials for IMAP and LLM
+    - Ensure `N8N_API_KEY` env var is set (a separate key from `API_KEY` — see `.env.example`)
 
-6. **Update BusinessContext:**
+6. **Run additional migrations:**
+   ```bash
+   docker-compose exec postgres psql -U exec_assistant -d exec_assistant -f /migrations/002_audit_trail.sql
+   docker-compose exec postgres psql -U exec_assistant -d exec_assistant -f /migrations/003_data_retention.sql
+   ```
+
+7. **Update BusinessContext:**
    - Use the API or NocoDB UI to set your `core_focus` and `target_keywords`
    ```bash
    curl -X PUT http://localhost:8000/context \
@@ -115,20 +131,26 @@ python3 -m venv .venv
 ## Multi-IMAP Setup
 
 To add multiple email accounts:
-1. Add entries to `IMAP_ACCOUNTS` env var (JSON array)
-2. Configure each in NocoDB `IMAP_Accounts` table
-3. In the n8n workflow, use a "Split In Batches" node to iterate over each active account
+1. Add entries to the `IMAP_Accounts` table via the API (`POST /imap-accounts` with `X-N8N-Key`)
+2. The n8n workflow reads active accounts from the API (`GET /imap-accounts`) and iterates over them
+
+IMAP passwords are encrypted at rest using the `ENCRYPTION_KEY`. Generate one with:
+```bash
+openssl rand -base64 32
+```
 
 ## Switching LLM Providers
 
-The Python LLM adapter layer (`src/llm_adapters/`) supports all four providers via `get_llm_adapter()`. However, the n8n workflows currently call OpenAI's API directly, so switching requires editing the workflow's HTTP Request node:
+The n8n workflows call the FastAPI `/llm/complete` endpoint, which uses the Python LLM adapter layer (`src/llm_adapters/`). To switch providers, update the `provider` field in the n8n workflow's HTTP Request node body, and ensure the corresponding API key is set in `.env`:
 
-**In n8n LLM node:**
-- Change the URL to your provider's chat completions endpoint
-- Update the `Authorization` header and `model` parameter
-- Adjust the request/response parsing in the downstream Code node
+| Provider | `provider` value | Required env var |
+|----------|-----------------|-----------------|
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Ollama | `ollama` | `OLLAMA_BASE_URL` |
+| MiniMax | `minimax` | `MINIMAX_API_KEY` |
+| DeepSeek | `deepseek` | `DEEPSEEK_API_KEY` |
 
-**The `DEFAULT_LLM_PROVIDER` env var** controls which adapter the Python API code uses for server-side LLM operations (future endpoints only).
+The `DEFAULT_LLM_PROVIDER` env var controls the default used when no `provider` is specified.
 
 ## Architecture Notes
 

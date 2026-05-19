@@ -8,11 +8,13 @@ class TestFastAPIEndpoints:
         with patch.dict("os.environ", {
             "NOCODB_URL": "http://localhost:8080",
             "API_KEY": "test-api-key",
+            "N8N_API_KEY": "test-n8n-key",
             "CORS_ORIGINS": "http://localhost:5678",
             "POSTGRES_HOST": "localhost",
             "POSTGRES_DB": "exec_assistant",
             "POSTGRES_USER": "exec_assistant",
             "POSTGRES_PASSWORD": "test",
+            "ENCRYPTION_KEY": "",
         }):
             yield
 
@@ -38,7 +40,7 @@ class TestFastAPIEndpoints:
         from fastapi.testclient import TestClient
         client = TestClient(app)
         response = client.get("/context")
-        assert response.status_code == 422
+        assert response.status_code == 401
 
     def test_get_context_wrong_api_key(self, mock_env, mock_nocodb):
         from api.app import app
@@ -79,6 +81,7 @@ class TestFastAPIEndpoints:
     def test_post_flagged_email(self, mock_env, mock_nocodb):
         from api.app import app
         from fastapi.testclient import TestClient
+        mock_nocodb.get_rows = AsyncMock(return_value={"list": []})
         mock_nocodb.insert_row = AsyncMock(return_value={
             "Id": "new-456",
             "created_at": "2024-06-01T00:00:00Z",

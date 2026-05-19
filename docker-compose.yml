@@ -24,19 +24,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ---------------------------------------------------------------------------
   # NocoDB - Database UI & API
   # ---------------------------------------------------------------------------
   nocodb:
-    image: nocodb/nocodb:latest
+    image: nocodb/nocodb:0.255.0
     container_name: exec-assistant-nocodb
     restart: unless-stopped
     environment:
       NC_DB: pg://${POSTGRES_USER:-exec_assistant}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-exec_assistant}?u=${POSTGRES_USER:-exec_assistant}&p=${POSTGRES_PASSWORD}&d=${POSTGRES_DB:-exec_assistant}
       NC_PORT: ${NOCODB_PORT:-8080}
       NC_JWT_SECRET: ${NOCODB_JWT_SECRET}
-      NC_AUTH_JWT_SECRET: ${NOCODB_JWT_SECRET}
+      NC_AUTH_JWT_SECRET: ${NOCODB_ADMIN_JWT_SECRET}
       NC_AUTH_EMAIL: admin@exec-assistant.local
       NC_AUTH_PASSWORD: ${NOCODB_ADMIN_PASSWORD}
       NC_AUTH_FIRSTNAME: Admin
@@ -46,17 +55,24 @@ services:
       - nocodb_data:/usr/src/app/data
     networks:
       - exec-assistant-net
-    ports:
-      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   # ---------------------------------------------------------------------------
   # n8n - Orchestration Layer (Workflow Engine)
   # ---------------------------------------------------------------------------
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.70.0
     container_name: exec-assistant-n8n
     restart: unless-stopped
     environment:
@@ -85,11 +101,18 @@ services:
       - ./n8n/workflows:/home/node/workflows
     networks:
       - exec-assistant-net
-    ports:
-      - "5678:5678"
     depends_on:
       postgres:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   # ---------------------------------------------------------------------------
   # FastAPI - Webhook API Service
@@ -105,15 +128,69 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - NOCODB_URL=http://nocodb:8080
       - API_KEY=${API_KEY}
+      - N8N_API_KEY=${N8N_API_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY}
+      - MINIMAX_MODEL=${MINIMAX_MODEL:-abab6-chat}
+      - MINIMAX_BASE_URL=${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - DEFAULT_LLM_PROVIDER=${DEFAULT_LLM_PROVIDER:-openai}
+      - DATA_RETENTION_DAYS=${DATA_RETENTION_DAYS:-90}
     volumes:
       - ./api:/app
+      - ./src:/app/src
     networks:
       - exec-assistant-net
-    ports:
-      - "8000:8000"
     depends_on:
-      - postgres
       - nocodb
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # nginx - Reverse Proxy with TLS
+  # ---------------------------------------------------------------------------
+  nginx:
+    build: ./reverse-proxy
+    container_name: exec-assistant-nginx
+    restart: unless-stopped
+    environment:
+      - NGINX_SERVER_NAME=${NGINX_SERVER_NAME:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - exec-assistant-net
+    depends_on:
+      - api
+      - nocodb
+      - n8n
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
 volumes:
   postgres_data:

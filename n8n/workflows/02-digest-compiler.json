@@ -23,7 +23,7 @@
         "options": {
           "headers": {
             "entries": [
-              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
+              {"name": "X-N8N-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
@@ -40,7 +40,7 @@
         "options": {
           "headers": {
             "entries": [
-              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
+              {"name": "X-N8N-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
@@ -64,17 +64,17 @@
       "id": "llm-digest-1",
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/chat/completions",
+        "url": "http://api:8000/llm/complete",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {"name": "Authorization", "value": "Bearer {{ $env.OPENAI_API_KEY }}"}
+            {"name": "X-N8N-Key", "value": "{{ $env.N8N_API_KEY }}"}
           ]
         },
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
-            {"name": "model", "value": "gpt-4o"},
+            {"name": "provider", "value": "openai"},
             {"name": "messages", "value": "=[{\"role\":\"system\",\"content\":\"You are an expert Chief of Staff. Create an executive digest from flagged emails. Use Markdown format.\"},{\"role\":\"user\",\"content\":\"Context: {{ JSON.stringify($json.context) }}\\n\\nFlagged Emails: {{ JSON.stringify($json.flagged_items) }}\"}]"},
             {"name": "temperature", "value": 0.3}
           ]
@@ -89,7 +89,7 @@
     {
       "id": "format-1",
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst llmResponse = items[0].json;\nconst now = new Date().toISOString();\n\nlet digestContent = '';\ntry {\n  digestContent = llmResponse.choices?.[0]?.message?.content || llmResponse.content || JSON.stringify(llmResponse);\n} catch (e) {\n  digestContent = JSON.stringify(llmResponse);\n}\n\nreturn [{\n  json: {\n    content_md: digestContent,\n    period_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),\n    period_end: now,\n    llm_provider: 'openai',\n    model_used: 'gpt-4o',\n    triggered_by: 'scheduled'\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst llmResponse = items[0].json;\nconst now = new Date().toISOString();\n\nlet digestContent = '';\ntry {\n  digestContent = llmResponse.content || JSON.stringify(llmResponse);\n} catch (e) {\n  digestContent = JSON.stringify(llmResponse);\n}\n\nreturn [{\n  json: {\n    content_md: digestContent,\n    period_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),\n    period_end: now,\n    llm_provider: llmResponse.provider || 'openai',\n    model_used: llmResponse.model || 'gpt-4o',\n    triggered_by: 'scheduled'\n  }\n}];"
       },
       "name": "Format Digest Record",
       "type": "n8n-nodes-base.code",
@@ -114,7 +114,7 @@
         "options": {
           "headers": {
             "entries": [
-              {"name": "X-API-Key", "value": "{{ $env.N8N_API_KEY }}"}
+              {"name": "X-N8N-Key", "value": "{{ $env.N8N_API_KEY }}"}
             ]
           }
         }
